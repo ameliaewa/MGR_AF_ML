@@ -1,11 +1,9 @@
 import os
-import wfdb
 import pandas as pd
 import numpy as np
 
 from MGR_AF_ML.utils.ecg_processing import process_ecg_records
 from utils.utils import get_data
-from utils import hrv
 from sklearn.model_selection import train_test_split, cross_val_score, cross_val_predict
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier
@@ -15,22 +13,6 @@ from sklearn.metrics import classification_report, accuracy_score, precision_sco
 from sklearn.ensemble import StackingClassifier
 # from tensorflow.keras.models import Sequential
 # from tensorflow.keras.layers import Dense
-
-# Ścieżka do folderu z rekordami
-afdb_path = './afdb'
-
-# Pobierz listę wszystkich plików w folderze afdb
-records = [os.path.join(afdb_path, f.split('.')[0]) for f in os.listdir(afdb_path) if f.endswith('.hea')]
-
-df=process_ecg_records(records)
-
-# Podział na cechy (X) i etykiety (y)
-X = df.drop('Class', axis=1)
-y = df['Class']  # Używamy bezpośrednio klasy 0/1
-
-# Normalizacja cech
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
 
 # Definiowanie modeli
 models = {
@@ -47,6 +29,24 @@ models = {
     #     Dense(1, activation='sigmoid')
     # ])
 }
+
+
+# Ścieżka do folderu z rekordami
+afdb_path = './afdb'
+
+# Pobierz listę wszystkich plików w folderze afdb
+records = [os.path.join(afdb_path, f.split('.')[0]) for f in os.listdir(afdb_path) if f.endswith('.hea')]
+
+df = process_ecg_records(records,30)
+
+# Podział na cechy (X) i etykiety (y)
+X = df.drop('Class', axis=1)
+y = df['Class']  # Używamy bezpośrednio klasy 0/1
+
+# Normalizacja cech
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
 
 # Słownik na wyniki
 results = {}
@@ -67,14 +67,7 @@ for model_name, model in models.items():
     f1 = f1_score(y, y_pred, average='weighted')
     std_dev = np.std(cv_scores)  # Obliczanie odchylenia standardowego z wyników krzyżowej walidacji
 
-    # Przechowywanie wyników
-    results[model_name] = {
-        'accuracy': accuracy,
-        'precision': precision,
-        'recall': recall,
-        'f1_score': f1,
-        'std_dev': std_dev  # Dodanie odchylenia standardowego do wyników
-    }
+
 
     # Wyświetlanie wyników walidacji krzyżowej
     print(f"Cross-validation results for {model_name}: {cv_scores}")
@@ -83,6 +76,15 @@ for model_name, model in models.items():
     print(f"Recall (weighted): {recall:.4f}")
     print(f"F1-score (weighted): {f1:.4f}")
     print(f"Standard deviation of accuracy: {std_dev:.4f}")
+
+    # Przechowywanie wyników
+    results[model_name] = {
+        'accuracy': accuracy,
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f1,
+        'std_dev': std_dev  # Dodanie odchylenia standardowego do wyników
+    }
 
 # Porównanie wyników
 results_df = pd.DataFrame(results).T  # Transponowanie, aby modele były wierszami

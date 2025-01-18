@@ -1,9 +1,9 @@
 import wfdb
 import pandas as pd
-from MGR_AF_ML.utils.hrv import  get_parameters
+from MGR_AF_ML.utils.hrv import get_parameters
 
 
-def label_r_peaks(record):
+def label_r_peaks(record, num_of_seconds):
     # Wczytaj dane dla jednego odprowadzenia
     try:
         signal, properties = wfdb.rdsamp(record, channels=[0])  # channels=[0] dla pojedynczego odprowadzenia
@@ -14,12 +14,12 @@ def label_r_peaks(record):
 
     f = properties["fs"]  # Częstotliwość próbkowania
     T = 1 / f
-    samples_per_minute = int(f * 60)
+    samples_per_period = int(f * num_of_seconds)
 
     # R-peaks i długość sygnału
     r_peaks = QRS.sample  # Lokalizacje R-peaków w próbkach
     signal_length = len(signal)  # Liczba próbek w sygnale
-    num_segments = signal_length // samples_per_minute  # Liczba segmentów 1-minutowych
+    num_segments = signal_length // samples_per_period  # Liczba segmentów 1-minutowych
 
     # Przypisanie etykiety do R-peaków
     AnnotationRhythm = pd.Series(annotations.aux_note)
@@ -39,19 +39,19 @@ def label_r_peaks(record):
     # Mapowanie etykiet na klasy (0 - Non-AF, 1 - AF)
     labeled_r_peaks['Label'] = labeled_r_peaks['Label'].map({'(N': 0, '(AFIB': 1})
 
-    return labeled_r_peaks, r_peaks, num_segments, samples_per_minute, T
+    return labeled_r_peaks, r_peaks, num_segments, samples_per_period, T
 
 
-def segment_and_label(segment_idx, labeled_r_peaks, r_peaks, samples_per_minute):
-    start_sample = segment_idx * samples_per_minute
-    end_sample = start_sample + samples_per_minute
+def segment_and_label(segment_idx, labeled_r_peaks, r_peaks, samples_per_period):
+    start_sample = segment_idx * samples_per_period
+    end_sample = start_sample + samples_per_period
     segment_r_peaks = r_peaks[(r_peaks >= start_sample) & (r_peaks < end_sample)]
     segment_labels = labeled_r_peaks[(labeled_r_peaks[0] >= start_sample) & (labeled_r_peaks[0] < end_sample)][
         'Label']
     return segment_r_peaks, segment_labels
 
 
-def process_ecg_records(records):
+def process_ecg_records(records, num_of_seconds):
     data = []
 
     # Przetwarzanie każdego rekordu
@@ -60,14 +60,15 @@ def process_ecg_records(records):
         print(f"Processing record: {record}")
 
         try:
-            labeled_r_peaks, r_peaks, num_segments, samples_per_minute, T = label_r_peaks(record)
+            labeled_r_peaks, r_peaks, num_segments, samples_per_period, T = label_r_peaks(record, num_of_seconds)
         except Exception as e:
             print(f"Error processing record {record}: {e}")
             continue
 
+
         # Analiza segmentów
         for segment_idx in range(num_segments):
-            segment_r_peaks, segment_labels = segment_and_label(segment_idx, labeled_r_peaks, r_peaks, samples_per_minute)
+            segment_r_peaks, segment_labels = segment_and_label(segment_idx, labeled_r_peaks, r_peaks, samples_per_period)
 
             # Jeśli etykiety różnią się w ramach segmentu, pomiń ten segment
             if segment_labels.nunique() > 1:
@@ -85,9 +86,11 @@ def process_ecg_records(records):
                 hrv_parameters.append(segment_class)
                 data.append(hrv_parameters)
 
-    # Przeksztańć dane na DataFrame
+
+    # Przekształć dane na DataFrame
     df = pd.DataFrame(data, columns=[
         'mean_rr', 'sdrr', 'sdsd', 'rmssd', 'median_rr', 'range_rr', 'cvsd', 'cvrr', 'mean_hr', 'max_hr', 'min_hr',
         'std_hr', 'Class'
     ])
+    print("number of segments", len(df))
     return df
