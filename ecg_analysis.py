@@ -2,6 +2,8 @@ import os
 import wfdb
 import pandas as pd
 import numpy as np
+
+from MGR_AF_ML.utils.ecg_processing import process_ecg_records
 from utils.utils import get_data
 from utils import hrv
 from sklearn.model_selection import train_test_split, cross_val_score, cross_val_predict
@@ -20,78 +22,7 @@ afdb_path = './afdb'
 # Pobierz listę wszystkich plików w folderze afdb
 records = [os.path.join(afdb_path, f.split('.')[0]) for f in os.listdir(afdb_path) if f.endswith('.hea')]
 
-# Lista na wyniki
-data = []
-
-# Przetwarzanie każdego rekordu
-for record_name in records:
-    print(f"Processing record: {record_name}")
-
-    # Wczytaj dane dla jednego odprowadzenia
-    try:
-        signal, properties = wfdb.rdsamp(record_name, channels=[0])  # channels=[0] dla pojedynczego odprowadzenia
-        annotations = wfdb.rdann(record_name, 'atr')
-        QRS = wfdb.rdann(record_name, 'qrs')
-    except Exception as e:
-        print(f"Error processing record {record_name}: {e}")
-        continue
-
-    f = properties["fs"]  # Częstotliwość próbkowania
-    T = 1 / f
-    samples_per_minute = int(f * 60)
-
-    # R-peaks i długość sygnału
-    r_peaks = QRS.sample  # Lokalizacje R-peaków w próbkach
-    signal_length = len(signal)  # Liczba próbek w sygnale
-    num_segments = signal_length // samples_per_minute  # Liczba segmentów 1-minutowych
-
-    # Przypisanie etykiety do R-peaków
-    AnnotationRhythm = pd.Series(annotations.aux_note)
-    AnnotationSamples = pd.Series(annotations.sample)
-
-    labeled_Rpeaks = []
-    num_labeled_Rpeaks = len(AnnotationSamples) - 1
-    if num_labeled_Rpeaks == 0:
-        continue
-
-    for j in range(num_labeled_Rpeaks):
-        df = pd.DataFrame(r_peaks[(r_peaks > AnnotationSamples[j]) & (r_peaks < AnnotationSamples[j + 1])])
-        df['Label'] = AnnotationRhythm[j]
-        labeled_Rpeaks.append(df)
-    labeled_Rpeaks = pd.concat(labeled_Rpeaks)
-
-    # Mapowanie etykiet na klasy (0 - Non-AF, 1 - AF)
-    labeled_Rpeaks['Label'] = labeled_Rpeaks['Label'].map({'(N': 0, '(AFIB': 1})
-
-    # Analiza segmentów
-    for segment_idx in range(num_segments):
-        start_sample = segment_idx * samples_per_minute
-        end_sample = start_sample + samples_per_minute
-
-        segment_r_peaks = r_peaks[(r_peaks >= start_sample) & (r_peaks < end_sample)]
-        segment_labels = labeled_Rpeaks[(labeled_Rpeaks[0] >= start_sample) & (labeled_Rpeaks[0] < end_sample)][
-            'Label']
-
-        if segment_labels.nunique() > 1:  # Jeśli etykiety różnią się w ramach segmentu, pomiń ten segment
-            continue
-
-        # Przypisanie klasy 0 i 1
-        segment_class = 1 if segment_labels.sum() > 0 else 0  # 1 dla AF, 0 dla Non-AF
-
-        # Wyznaczanie RR-odstępy
-        rr_intervals = [(segment_r_peaks[i + 1] - segment_r_peaks[i]) * T * 1000
-                        for i in range(len(segment_r_peaks) - 1)]
-
-        if rr_intervals:
-            hrv_parameters = hrv.get_parameters(rr_intervals)
-            hrv_parameters.append(segment_class)
-            data.append(hrv_parameters)
-
-# Przeksztańć dane na DataFrame
-df = pd.DataFrame(data, columns=[
-    'mean_rr', 'sdrr', 'sdsd', 'rmssd', 'median_rr', 'range_rr', 'cvsd', 'cvrr', 'mean_hr', 'max_hr', 'min_hr',
-    'std_hr', 'Class'
-])
+df=process_ecg_records(records)
 
 # Podział na cechy (X) i etykiety (y)
 X = df.drop('Class', axis=1)
