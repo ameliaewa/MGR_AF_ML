@@ -9,7 +9,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score, \
+    confusion_matrix
 from sklearn.ensemble import StackingClassifier
 # from tensorflow.keras.models import Sequential
 # from tensorflow.keras.layers import Dense
@@ -75,7 +76,22 @@ for num_of_seconds in segment_lengths:
         # Cross-validation predictions
         y_pred = cross_val_predict(model, X_scaled, y, cv=5)
 
-        # Calculate metrics
+        # Calculate confusion matrix
+        cm = confusion_matrix(y, y_pred, labels=np.unique(y))
+        tp = np.diag(cm)  # True Positives
+        fp = cm.sum(axis=0) - tp  # False Positives
+        fn = cm.sum(axis=1) - tp  # False Negatives
+        tn = cm.sum() - (fp + fn + tp)  # True Negatives
+
+        # Calculate sensitivity and specificity for each class
+        sensitivity = tp / (tp + fn)
+        specificity = tn / (tn + fp)
+
+        # Weighted averages for sensitivity and specificity
+        sensitivity_weighted = np.average(sensitivity, weights=np.bincount(y))
+        specificity_weighted = np.average(specificity, weights=np.bincount(y))
+
+        # Calculate other metrics
         accuracy = np.mean(cv_scores)
         precision = precision_score(y, y_pred, average='weighted')
         recall = recall_score(y, y_pred, average='weighted')
@@ -88,6 +104,8 @@ for num_of_seconds in segment_lengths:
         print(f"Precision (weighted): {precision:.4f}")
         print(f"Recall (weighted): {recall:.4f}")
         print(f"F1-score (weighted): {f1:.4f}")
+        print(f"Sensitivity (weighted): {sensitivity_weighted:.4f}")
+        print(f"Specificity (weighted): {specificity_weighted:.4f}")
         print(f"Standard deviation of accuracy: {std_dev:.4f}")
 
         # Store results
@@ -96,12 +114,17 @@ for num_of_seconds in segment_lengths:
             'precision': precision,
             'recall': recall,
             'f1_score': f1,
+            'sensitivity': sensitivity_weighted,
+            'specificity': specificity_weighted,
             'std_dev': std_dev
         }
 
     # Save results for this segment length
     experiment_results[num_of_seconds] = segment_results
 
+
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
 # Summarize and compare results
 summary_df = pd.concat({seg: pd.DataFrame(res).T for seg, res in experiment_results.items()}, axis=0)
 summary_df.index.names = ['Segment Length (s)', 'Model']
