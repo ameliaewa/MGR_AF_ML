@@ -37,56 +37,73 @@ afdb_path = './afdb'
 # Pobierz listę wszystkich plików w folderze afdb
 records = [os.path.join(afdb_path, f.split('.')[0]) for f in os.listdir(afdb_path) if f.endswith('.hea')]
 
-df = process_ecg_records(records,30)
+# Define a list of segment lengths to test
+segment_lengths = [10, 20, 30, 60, 120]
 
-# Podział na cechy (X) i etykiety (y)
-X = df.drop('Class', axis=1)
-y = df['Class']  # Używamy bezpośrednio klasy 0/1
+# Dictionary to store results for each segment length
+experiment_results = {}
 
-# Normalizacja cech
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+for num_of_seconds in segment_lengths:
+    print(f"\nProcessing ECG records with segment length: {num_of_seconds} seconds")
 
+    # Process ECG records with the given segment length
+    df = process_ecg_records(records, num_of_seconds)
 
-# Słownik na wyniki
-results = {}
+    # Split features (X) and labels (y)
+    X = df.drop('Class', axis=1)
+    y = df['Class']
 
-for model_name, model in models.items():
-    print(f"\nTraining {model_name} using cross-validation...")
+    if X.isnull().sum().sum() > 0:
+        print("Found missing values. Handling them...")
+        # Option 1: Drop rows with missing values
+        X = X.dropna()
+        y = y[X.index]  # Alig
 
-    # Przeprowadzanie krzyżowej walidacji (5-fold cross-validation)
-    cv_scores = cross_val_score(model, X_scaled, y, cv=5, scoring='accuracy')
+    # Normalize features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
-    # Obliczanie przewidywań dla całego zbioru danych przy użyciu krzyżowej walidacji
-    y_pred = cross_val_predict(model, X_scaled, y, cv=5)
+    # Initialize results for this segment length
+    segment_results = {}
 
-    # Obliczanie metryk
-    accuracy = np.mean(cv_scores)
-    precision = precision_score(y, y_pred, average='weighted')
-    recall = recall_score(y, y_pred, average='weighted')
-    f1 = f1_score(y, y_pred, average='weighted')
-    std_dev = np.std(cv_scores)  # Obliczanie odchylenia standardowego z wyników krzyżowej walidacji
+    for model_name, model in models.items():
+        print(f"\nTraining {model_name} for segment length {num_of_seconds} seconds using cross-validation...")
 
+        # Perform cross-validation
+        cv_scores = cross_val_score(model, X_scaled, y, cv=5, scoring='accuracy')
 
+        # Cross-validation predictions
+        y_pred = cross_val_predict(model, X_scaled, y, cv=5)
 
-    # Wyświetlanie wyników walidacji krzyżowej
-    print(f"Cross-validation results for {model_name}: {cv_scores}")
-    print(f"Mean accuracy: {accuracy:.4f}")
-    print(f"Precision (weighted): {precision:.4f}")
-    print(f"Recall (weighted): {recall:.4f}")
-    print(f"F1-score (weighted): {f1:.4f}")
-    print(f"Standard deviation of accuracy: {std_dev:.4f}")
+        # Calculate metrics
+        accuracy = np.mean(cv_scores)
+        precision = precision_score(y, y_pred, average='weighted')
+        recall = recall_score(y, y_pred, average='weighted')
+        f1 = f1_score(y, y_pred, average='weighted')
+        std_dev = np.std(cv_scores)
 
-    # Przechowywanie wyników
-    results[model_name] = {
-        'accuracy': accuracy,
-        'precision': precision,
-        'recall': recall,
-        'f1_score': f1,
-        'std_dev': std_dev  # Dodanie odchylenia standardowego do wyników
-    }
+        # Print metrics
+        print(f"Cross-validation results for {model_name} (segment length {num_of_seconds}): {cv_scores}")
+        print(f"Mean accuracy: {accuracy:.4f}")
+        print(f"Precision (weighted): {precision:.4f}")
+        print(f"Recall (weighted): {recall:.4f}")
+        print(f"F1-score (weighted): {f1:.4f}")
+        print(f"Standard deviation of accuracy: {std_dev:.4f}")
 
-# Porównanie wyników
-results_df = pd.DataFrame(results).T  # Transponowanie, aby modele były wierszami
-print("\nComparison of model performance (mean accuracy from cross-validation):")
-print(results_df)
+        # Store results
+        segment_results[model_name] = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1,
+            'std_dev': std_dev
+        }
+
+    # Save results for this segment length
+    experiment_results[num_of_seconds] = segment_results
+
+# Summarize and compare results
+summary_df = pd.concat({seg: pd.DataFrame(res).T for seg, res in experiment_results.items()}, axis=0)
+summary_df.index.names = ['Segment Length (s)', 'Model']
+print("\nSummary of experiments:")
+print(summary_df)
