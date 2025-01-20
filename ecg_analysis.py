@@ -60,9 +60,23 @@ for num_of_seconds in segment_lengths:
         X = X.dropna()
         y = y[X.index]  # Alig
 
+    # Balance classes by undersampling the majority class
+    class_counts = y.value_counts()
+    min_class_count = class_counts.min()
+
+    # Randomly sample from the majority class to match the minority class
+    balanced_indices = (
+            y[y == class_counts.idxmin()].index.tolist() +
+            y[y == class_counts.idxmax()].sample(n=min_class_count, random_state=42).index.tolist()
+    )
+
+    # Create a balanced dataset
+    X_balanced = X.loc[balanced_indices]
+    y_balanced = y.loc[balanced_indices]
+
     # Normalize features
     scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+    X_scaled_balanced = scaler.fit_transform(X_balanced)
 
     # Initialize results for this segment length
     segment_results = {}
@@ -71,13 +85,13 @@ for num_of_seconds in segment_lengths:
         print(f"\nTraining {model_name} for segment length {num_of_seconds} seconds using cross-validation...")
 
         # Perform cross-validation
-        cv_scores = cross_val_score(model, X_scaled, y, cv=5, scoring='accuracy')
+        cv_scores = cross_val_score(model, X_scaled_balanced, y_balanced, cv=5, scoring='accuracy')
 
         # Cross-validation predictions
-        y_pred = cross_val_predict(model, X_scaled, y, cv=5)
+        y_pred = cross_val_predict(model, X_scaled_balanced, y_balanced, cv=5)
 
         # Calculate confusion matrix
-        cm = confusion_matrix(y, y_pred, labels=np.unique(y))
+        cm = confusion_matrix(y_balanced, y_pred, labels=np.unique(y_balanced))
         tp = np.diag(cm)  # True Positives
         fp = cm.sum(axis=0) - tp  # False Positives
         fn = cm.sum(axis=1) - tp  # False Negatives
@@ -88,14 +102,14 @@ for num_of_seconds in segment_lengths:
         specificity = tn / (tn + fp)
 
         # Weighted averages for sensitivity and specificity
-        sensitivity_weighted = np.average(sensitivity, weights=np.bincount(y))
-        specificity_weighted = np.average(specificity, weights=np.bincount(y))
+        sensitivity_weighted = np.average(sensitivity, weights=np.bincount(y_balanced))
+        specificity_weighted = np.average(specificity, weights=np.bincount(y_balanced))
 
         # Calculate other metrics
         accuracy = np.mean(cv_scores)
-        precision = precision_score(y, y_pred, average='weighted')
-        recall = recall_score(y, y_pred, average='weighted')
-        f1 = f1_score(y, y_pred, average='weighted')
+        precision = precision_score(y_balanced, y_pred, average='weighted')
+        recall = recall_score(y_balanced, y_pred, average='weighted')
+        f1 = f1_score(y_balanced, y_pred, average='weighted')
         std_dev = np.std(cv_scores)
 
         # Print metrics
